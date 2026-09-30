@@ -29,6 +29,18 @@ class AndroidSdkLocator {
         val adbPath = File(sdkPath, "platform-tools/adb")
         return if (adbPath.exists()) adbPath.absolutePath else null
     }
+
+    fun locateAvdManager(sdkPath: String): String? {
+        val commandLineToolsDirectory = File(sdkPath, "cmdline-tools")
+        val candidates = buildList {
+            add(File(commandLineToolsDirectory, "latest/bin/avdmanager"))
+            commandLineToolsDirectory.listFiles()
+                ?.filter { it.isDirectory }
+                ?.forEach { add(File(it, "bin/avdmanager")) }
+            add(File(sdkPath, "tools/bin/avdmanager"))
+        }
+        return candidates.firstOrNull { it.isFile && it.canExecute() }?.absolutePath
+    }
     
     private fun validateSdkPath(path: String): String? {
         val sdkDir = File(path)

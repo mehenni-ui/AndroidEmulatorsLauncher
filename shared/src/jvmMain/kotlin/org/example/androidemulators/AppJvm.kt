@@ -3,6 +3,8 @@ package org.example.androidemulators
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +18,10 @@ import org.example.androidemulators.domain.model.Emulator
 import org.example.androidemulators.domain.model.EmulatorState
 import org.example.androidemulators.platform.emulator.EmulatorLauncher
 import org.example.androidemulators.platform.emulator.EmulatorRepository
+import org.example.androidemulators.platform.emulator.AvdCreator
+import org.example.androidemulators.platform.emulator.AvdCreationOptions
+import org.example.androidemulators.platform.emulator.DeviceProfile
+import org.example.androidemulators.platform.emulator.SystemImage
 import org.example.androidemulators.platform.process.ProcessExecutorImpl
 import org.example.androidemulators.platform.sdk.AndroidSdkLocator
 
@@ -51,6 +57,14 @@ sealed class UiState {
     data object Empty : UiState()
 }
 
+private sealed interface CreationUiState {
+    data object Idle : CreationUiState
+    data object Loading : CreationUiState
+    data class Ready(val options: AvdCreationOptions) : CreationUiState
+    data object Creating : CreationUiState
+    data class Error(val message: String) : CreationUiState
+}
+
 @Composable
 actual fun App() {
     var uiState by remember { mutableStateOf<UiState>(UiState.Loading) }
@@ -60,6 +74,9 @@ actual fun App() {
     val sdkLocator = remember { AndroidSdkLocator() }
     val emulatorRepository = remember { EmulatorRepository(processExecutor, sdkLocator) }
     val emulatorLauncher = remember { EmulatorLauncher(processExecutor, sdkLocator) }
+    val avdCreator = remember { AvdCreator(processExecutor, sdkLocator) }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var creationUiState by remember { mutableStateOf<CreationUiState>(CreationUiState.Idle) }
     
     fun loadEmulators() {
         coroutineScope.launch {
@@ -101,6 +118,35 @@ actual fun App() {
             )
         }
     }
+
+    fun openCreateDialog() {
+        showCreateDialog = true
+        creationUiState = CreationUiState.Loading
+        coroutineScope.launch {
+            avdCreator.loadOptions().fold(
+                onSuccess = { options -> creationUiState = CreationUiState.Ready(options) },
+                onFailure = { error -> creationUiState = CreationUiState.Error(error.message ?: "Unable to load emulator options.") }
+            )
+        }
+    }
+
+    fun createEmulator(name: String, device: DeviceProfile, image: SystemImage) {
+        if (!name.matches(Regex("[A-Za-z0-9_.-]+"))) {
+            creationUiState = CreationUiState.Error("Use only letters, numbers, periods, underscores, or hyphens in the emulator name.")
+            return
+        }
+        creationUiState = CreationUiState.Creating
+        coroutineScope.launch {
+            avdCreator.createAvd(name, device, image).fold(
+                onSuccess = {
+                    showCreateDialog = false
+                    creationUiState = CreationUiState.Idle
+                    loadEmulators()
+                },
+                onFailure = { error -> creationUiState = CreationUiState.Error(error.message ?: "Unable to create the emulator.") }
+            )
+        }
+    }
     
     LaunchedEffect(Unit) {
         loadEmulators()
@@ -132,14 +178,19 @@ actual fun App() {
                         style = MaterialTheme.typography.headlineMedium,
                         color = darkText
                     )
-                    Button(
-                        onClick = { loadEmulators() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = darkPrimary,
-                            contentColor = darkOnPrimary
-                        )
-                    ) {
-                        Text("Refresh")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { openCreateDialog() }) {
+                            Text("Create Emulator")
+                        }
+                        Button(
+                            onClick = { loadEmulators() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = darkPrimary,
+                                contentColor = darkOnPrimary
+                            )
+                        ) {
+                            Text("Refresh")
+                        }
                     }
                 }
                 
@@ -205,6 +256,150 @@ actual fun App() {
             }
         }
     }
+
+    if (showCreateDialog) {
+        CreateEmulatorDialog(
+            state = creationUiState,
+            onDismiss = {
+                if (creationUiState !is CreationUiState.Creating) {
+                    showCreateDialog = false
+                    creationUiState = CreationUiState.Idle
+                }
+            },
+            onCreate = ::createEmulator
+        )
+    }
+}
+
+@Composable
+private fun CreateEmulatorDialog(
+    state: CreationUiState,
+    onDismiss: () -> Unit,
+    onCreate: (String, DeviceProfile, SystemImage) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Create Android Emulator") },
+        text = {
+            when (state) {
+                CreationUiState.Idle, CreationUiState.Loading -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Loading device profiles and installed system images…")
+                    }
+                }
+                CreationUiState.Creating -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Creating emulator…")
+                    }
+                }
+                is CreationUiState.Error -> Text(state.message)
+                is CreationUiState.Ready -> CreateEmulatorForm(state.options, onCreate)
+            }
+        },
+        confirmButton = {
+            if (state is CreationUiState.Error) {
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+        dismissButton = {
+            if (state !is CreationUiState.Creating) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
+}
+
+@Composable
+private fun CreateEmulatorForm(
+    options: AvdCreationOptions,
+    onCreate: (String, DeviceProfile, SystemImage) -> Unit
+) {
+    var selectedDevice by remember(options) { mutableStateOf(options.deviceProfiles.first()) }
+    var selectedImage by remember(options) { mutableStateOf(options.systemImages.first()) }
+    var avdName by remember(options) { mutableStateOf(suggestedAvdName(selectedDevice, selectedImage)) }
+
+    Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Choose a device profile and one of the Android system images already installed on this Mac.")
+        OptionSelector(
+            label = "Device",
+            selectedLabel = selectedDevice.name,
+            options = options.deviceProfiles,
+            optionLabel = { it.name },
+            onSelected = {
+                selectedDevice = it
+                avdName = suggestedAvdName(selectedDevice, selectedImage)
+            }
+        )
+        OptionSelector(
+            label = "Android version",
+            selectedLabel = selectedImage.displayName,
+            options = options.systemImages,
+            optionLabel = { it.displayName },
+            onSelected = {
+                selectedImage = it
+                avdName = suggestedAvdName(selectedDevice, selectedImage)
+            }
+        )
+        OutlinedTextField(
+            value = avdName,
+            onValueChange = { avdName = it },
+            label = { Text("Emulator name") },
+            supportingText = { Text("Generated automatically; you can change it.") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = { onCreate(avdName.trim(), selectedDevice, selectedImage) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = darkPrimary, contentColor = darkOnPrimary)
+        ) {
+            Text("Create Emulator")
+        }
+    }
+}
+
+@Composable
+private fun <T> OptionSelector(
+    label: String,
+    selectedLabel: String,
+    options: List<T>,
+    optionLabel: (T) -> String,
+    onSelected: (T) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(4.dp))
+        Box {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(selectedLabel, modifier = Modifier.weight(1f))
+                Text("▾")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(optionLabel(option)) },
+                        onClick = {
+                            onSelected(option)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun suggestedAvdName(device: DeviceProfile, image: SystemImage): String {
+    val api = image.packageName.split(';').getOrNull(1)?.removePrefix("android-") ?: "API"
+    return "${device.id.replace(Regex("[^A-Za-z0-9_.-]"), "_")}_API_$api"
 }
 
 @Composable

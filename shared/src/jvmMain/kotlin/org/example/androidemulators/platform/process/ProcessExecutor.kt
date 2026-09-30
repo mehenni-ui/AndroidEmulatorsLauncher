@@ -14,7 +14,8 @@ interface ProcessExecutor {
     suspend fun execute(
         command: String,
         args: List<String>,
-        workingDirectory: String? = null
+        workingDirectory: String? = null,
+        stdin: String? = null
     ): ProcessResult
 }
 
@@ -22,12 +23,18 @@ class ProcessExecutorImpl : ProcessExecutor {
     override suspend fun execute(
         command: String,
         args: List<String>,
-        workingDirectory: String?
+        workingDirectory: String?,
+        stdin: String?
     ): ProcessResult = withContext(Dispatchers.IO) {
         val processBuilder = ProcessBuilder(listOf(command) + args)
         workingDirectory?.let { processBuilder.directory(java.io.File(it)) }
         
         val process = processBuilder.start()
+        stdin?.let { input ->
+            process.outputStream.bufferedWriter().use { writer ->
+                writer.write(input)
+            }
+        } ?: process.outputStream.close()
         
         val stdout = process.inputStream.bufferedReader().use(BufferedReader::readText)
         val stderr = process.errorStream.bufferedReader().use(BufferedReader::readText)

@@ -9,6 +9,7 @@ It is built with Kotlin Multiplatform and Compose Desktop, with an Android Studi
 - Automatically finds the Android SDK on macOS.
 - Lists the AVDs already configured on your machine.
 - Starts an emulator with one click.
+- Creates new AVDs from Android device profiles and installed system images.
 - Shows loading, empty, running, and error states.
 - Refreshes the emulator list at any time.
 
@@ -26,7 +27,7 @@ If macOS blocks the first launch, Control-click the app, choose **Open**, then c
 ## Requirements
 
 - macOS on Apple Silicon (M1, M2, M3, or later) for the current `arm64` build.
-- Android SDK with the Emulator package installed.
+- Android SDK with the Emulator package and Command-line Tools installed.
 - At least one configured Android Virtual Device (AVD).
 
 The app looks for the SDK in this order:
@@ -42,6 +43,8 @@ The app looks for the SDK in this order:
 2. Wait for it to load your AVDs.
 3. Click **Launch** next to the emulator you want to run.
 4. Use **Refresh** after creating or deleting an AVD.
+
+To create a new emulator, click **Create Emulator**, select a device profile and installed Android system image, confirm or edit the suggested name, then click **Create Emulator**.
 
 If no emulators appear, confirm that the Android SDK and an AVD are installed, then make sure one of the SDK locations above is available.
 
