@@ -1,3 +1,6 @@
+<img width="1428" height="900" alt="AndroidEmulatorPreview" src="https://github.com/user-attachments/assets/f299a0c1-ecd7-489f-8f2a-3b6af157c440" />
+
+
 # Android Emulator Launcher
 
 A lightweight macOS desktop app for discovering and launching existing Android Virtual Devices (AVDs) without opening Android Studio or typing emulator commands in a terminal.
